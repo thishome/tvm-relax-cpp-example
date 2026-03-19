@@ -9,6 +9,11 @@
 #include <tvm/runtime/vm/vm.h>
 #include <cuda_runtime.h>
 
+#include <string>
+#include <fstream>
+
+#include <sys/stat.h>
+
 struct GPUNDAlloc {
   void AllocData(DLTensor* tensor) {
     size_t data_size = tvm::ffi::GetDataSize(*tensor);
@@ -28,6 +33,14 @@ struct GPUNDAlloc {
     }
   }
 };
+
+
+size_t get_file_size(const char* path){
+  struct stat st;
+  stat(path, &st);
+  size_t size = st.st_size;
+  return size;
+}
 
 int main()
 {
@@ -60,13 +73,24 @@ int main()
 
   // Create and initialize the input array
   GPUNDAlloc alloc;
-  tvm::ffi::Tensor input = tvm::ffi::Tensor::FromNDAlloc(alloc, {3, 3}, {kDLInt, 32, 1}, device);
+  tvm::ffi::Tensor input = tvm::ffi::Tensor::FromNDAlloc(alloc, {1, 3, 224, 224}, {kDLFloat, 32, 1}, device);
   int numel = input.shape().Product();
-  std::vector<int> host_data(numel);
-  for (int i = 0; i < numel; ++i) {
-    host_data[i] = i;
+  // std::vector<float> host_data(numel);
+  // for (int i = 0; i < numel; ++i) {
+  //   host_data[i] = i;
+  // }
+  std::string filename("input_onnx.dat");
+  size_t filesize = get_file_size(filename.c_str());
+  std::vector<char> input_img(filesize);
+  std::ifstream ifs(filename);
+  if(!ifs.is_open()) {
+    std::cout << "open file " << filename << " error!" << std::endl;
+    return -1;
   }
-  cudaError_t err = cudaMemcpy(input.data_ptr(), host_data.data(), numel * sizeof(int), cudaMemcpyHostToDevice);
+  ifs.read(input_img.data(), filesize);
+  ifs.close();
+  
+  cudaError_t err = cudaMemcpy(input.data_ptr(), input_img.data(), numel * sizeof(float), cudaMemcpyHostToDevice);
   TVM_FFI_ICHECK_EQ(err, cudaSuccess) << "cudaMemcpy failed: " << cudaGetErrorString(err);
   std::cout << "Input array initialized on GPU" << std::endl;
   
@@ -82,13 +106,30 @@ int main()
 
   // Copy the output data back to the host
   int numel_output = output.shape().Product();
-  std::vector<int> host_output(numel_output);
-  err = cudaMemcpy(host_output.data(), output.data_ptr(), numel_output * sizeof(int), cudaMemcpyDeviceToHost);
+  std::vector<float> host_output(numel_output);
+  err = cudaMemcpy(host_output.data(), output.data_ptr(), numel_output * sizeof(float), cudaMemcpyDeviceToHost);
   TVM_FFI_ICHECK_EQ(err, cudaSuccess) << "cudaMemcpy failed: " << cudaGetErrorString(err);
 
-  std::cout << "output: " << std::endl;
-  for (int i = 0; i < numel_output; ++i) {
-    std::cout << host_output[i] << " ";
+  // for(int i=0; i<numel_output; ++i) {
+  //   std::cout << host_output[i] << ", ";
+  // }
+  // std::cout << std::endl;
+
+  std::cout << "argmax: " << std::endl;
+  int max_idx = 0;
+  float max_value = host_output[max_idx];
+  for (int i = 1; i < numel_output; ++i) {
+    if(max_value < host_output[i]){
+      max_value = host_output[i];
+      max_idx = i;
+    }
   }
-  std::cout << std::endl;
+  std::cout<< "max idx:" << max_idx << std::endl;
+  std::ofstream ofs("output_thor.dat");
+  if(!ifs.is_open()) {
+    std::cout << "open file " << filename << " error!" << std::endl;
+    return -1;
+  }
+  ofs.write(reinterpret_cast<char*>(host_output.data()), host_output.size() * sizeof(host_output[0]));
+  std::cout << "save output to dat." << std::endl;
 }

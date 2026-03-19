@@ -22,8 +22,27 @@ target_include_directories(main PUBLIC
 )
 
 target_link_libraries(main
-  ${CMAKE_SOURCE_DIR}/3rdparty/tvm/build/libtvm_runtime.so
+  ${CMAKE_SOURCE_DIR}/3rdparty/tvm/install-aarch64/lib/libtvm_runtime.so
   CUDA::cudart
 )
 
 target_link_libraries(main tvm_ffi_shared)
+
+add_executable(main_resnet50 main_resnet50.cc)
+set_target_properties( main_resnet50 PROPERTIES
+    CUDA_STANDARD 17
+    CUDA_SEPARABLE_COMPILATION ON
+)
+
+target_include_directories(main_resnet50 PUBLIC
+  ${CMAKE_SOURCE_DIR}/3rdparty/tvm/include
+  ${CMAKE_SOURCE_DIR}/3rdparty/tvm/3rdparty/dlpack/include
+  ${CMAKE_SOURCE_DIR}/3rdparty/tvm/3rdparty/dmlc-core/include
+)
+
+target_link_libraries(main_resnet50
+  ${CMAKE_SOURCE_DIR}/3rdparty/tvm/install-aarch64/lib/libtvm_runtime.so
+  CUDA::cudart
+)
+
+target_link_libraries(main_resnet50 tvm_ffi_shared)

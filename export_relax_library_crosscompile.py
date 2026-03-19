@@ -23,7 +23,7 @@ class TVMScriptModule:
                 B[vi, vj] = A[vi, vj] + T.int32(1)
 
     @R.function
-    def main(x: R.Tensor(("m", "n"), "int32")):
+    def main(x: R.Tensor(("m", "n"), "int32")) -> R.Tensor(("m", "n"), "int32"):
         m, n = T.int64(), T.int64()
         gv0 = R.call_tir(TVMScriptModule.addone, (x,), R.Tensor((m, n), dtype="int32"))
         return gv0
@@ -31,39 +31,46 @@ class TVMScriptModule:
 mod = TVMScriptModule
 # mod.show()
 
-# mod: tvm.IRModule = relax.transform.LegalizeOps()(mod)
-# mod.show()
+mod: tvm.IRModule = relax.transform.LegalizeOps()(mod)
+mod.show()
 
 mod: tvm.IRModule = relax.get_pipeline("zero")(mod)
 mod.show()
 
-so_name = "compiled_artifact_gpu.so"
+so_name = "compiled_artifact_gpu_thor.so"
+# so_name = "compiled_artifact_gpu_thor.tar"
 
-# target = tvm.target.Target("llvm")
-# dev = tvm.cpu()
+# for thor crosscompiling
+target = tvm.target.Target(
+    "cuda -arch=sm_90", 
+    host="llvm -mtriple=aarch64-linux-gnu"
+    )
+with target:
+    mod = dl.ApplyDefaultSchedule(
+            dl.gpu.Matmul(),
+            dl.gpu.Fallback(),
+        )(mod)
 
-# x86 target
-# target = tvm.target.Target("cuda")
-# with target:
-#     mod = dl.ApplyDefaultSchedule(
-#         dl.gpu.Matmul(),
-#         dl.gpu.Fallback(),
-#     )(mod)
-# dev = tvm.cuda(0)
+dev = tvm.cuda(0)
 
 # relax.build is same with tvm.compile
 # executable = relax.build(mod, target, exec_mode="compiled")
 executable = tvm.compile(mod, target=target)
-executable.export_library(so_name)
+# executable.export_library(so_name)
+executable.export_library(
+    so_name,
+    cc="aarch64-linux-gnu-gcc",
+    options=[
+        "-L/usr/local/cuda/targets/aarch64-linux/lib",
+        "-L/usr/local/cuda/targets/aarch64-linux/lib/stubs",
+        "-lcuda",
+        "-lcudart",
+    ]
+)
 
-data: tvm.runtime.Tensor = tvm.runtime.tensor(
-    np.array([[1, 2, 3], [1, 2, 3]], dtype=np.int32), device=dev)
 
-# vm = relax.VirtualMachine(executable, dev)
-# cpu_out = vm["main"](data).numpy()
-# print("cpu_out:",cpu_out)
 
-loaded_mod: tvm.runtime.Module = tvm.runtime.load_module(so_name)
-vm1 = relax.VirtualMachine(loaded_mod, dev)
-cpu_out1 = vm1["main"](data).numpy()
-print("cpu_out1:", cpu_out1)
+
+
+
+
